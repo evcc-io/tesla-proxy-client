@@ -25,14 +25,17 @@ type EnergySiteStatus struct {
 	ResourceType      string  `json:"resource_type"`
 	SiteName          string  `json:"site_name"`
 	GatewayId         string  `json:"gateway_id"`
-	EnergyLeft        float64 `json:"energy_left"`
-	TotalPackEnergy   uint64  `json:"total_pack_energy"`
 	PercentageCharged float64 `json:"percentage_charged"`
 	BatteryType       string  `json:"battery_type"`
 	BackupCapable     bool    `json:"backup_capable"`
 	BatteryPower      int64   `json:"battery_power"`
 
 	c *Client
+
+	// These are no longer returned.
+	// https://github.com/teslamotors/vehicle-command/issues/215
+	// EnergyLeft        float64 `json:"energy_left"`
+	// TotalPackEnergy   uint64  `json:"total_pack_energy"`
 }
 
 type EnergySiteHistory struct {
@@ -73,6 +76,30 @@ type SiteStatusResponse struct {
 
 type SiteHistoryResponse struct {
 	Response *EnergySiteHistory `json:"response"`
+}
+
+type EnergySiteLiveStatus struct {
+	SolarPower         float64 `json:"solar_power"`
+	PercentageCharged  float64 `json:"percentage_charged"`
+	BatteryPower       float64 `json:"battery_power"`
+	LoadPower          float64 `json:"load_power"`
+	GridPower          float64 `json:"grid_power"`
+	GridServicesActive bool    `json:"grid_services_active"`
+	GridStatus         string  `json:"grid_status"`
+	IslandStatus       string  `json:"island_status"`
+	StormModeActive    bool    `json:"storm_mode_active"`
+	Timestamp          string  `json:"timestamp"`
+
+	c *Client
+
+	// These are no longer returned.
+	// https://github.com/teslamotors/vehicle-command/issues/215
+	// EnergyLeft         float64 `json:"energy_left"`
+	// TotalPackEnergy    float64 `json:"total_pack_energy"`
+}
+
+type SiteLiveStatusResponse struct {
+	Response *EnergySiteLiveStatus `json:"response"`
 }
 
 // SiteCommandResponse is the response from the Tesla API after POSTing a command.
@@ -121,6 +148,15 @@ func (s *EnergySite) EnergySiteHistory(period HistoryPeriod) (*EnergySiteHistory
 	return historyResponse.Response, nil
 }
 
+func (s *EnergySite) EnergySiteLiveStatus() (*EnergySiteLiveStatus, error) {
+	liveStatusResponse := &SiteLiveStatusResponse{}
+	if err := s.c.getJSON(s.liveStatusPath(), liveStatusResponse); err != nil {
+		return nil, err
+	}
+	liveStatusResponse.Response.c = s.c
+	return liveStatusResponse.Response, nil
+}
+
 func (s *EnergySite) basePath() string {
 	return strings.Join([]string{s.c.baseURL, "energy_sites", strconv.FormatInt(s.productId, 10)}, "/")
 }
@@ -135,6 +171,10 @@ func (s *EnergySite) historyPath(period HistoryPeriod) string {
 	v.Set("period", string(period))
 
 	return strings.Join([]string{s.basePath(), "history"}, "/") + fmt.Sprintf("?%s", v.Encode())
+}
+
+func (s *EnergySite) liveStatusPath() string {
+	return strings.Join([]string{s.basePath(), "live_status"}, "/")
 }
 
 func (s *EnergySite) SetBatteryReserve(percent uint64) error {
