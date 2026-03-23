@@ -1,6 +1,9 @@
 package tesla
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -12,7 +15,45 @@ var (
 			"id": "STE20240101-00001",
 			"site_name": "My Energy Site",
 			"backup_reserve_percent": 20,
-			"default_real_mode": "self_consumption"
+			"default_real_mode": "self_consumption",
+			"tariff_id": "PGE-E-ELEC-NEM3-2026",
+			"tariff_content": {
+				"code": "PGE-E-ELEC-2026-CA-NEM3-flag",
+				"name": "Residential TOU",
+				"utility": "Pacific Gas & Electric Co",
+				"currency": "USD",
+				"demand_charges": {"ALL": {"ALL": 0}},
+				"energy_charges": {
+					"Summer": {"ON_PEAK": 0.57908, "OFF_PEAK": 0.36052}
+				},
+				"seasons": {
+					"Summer": {
+						"fromDay": 1, "toDay": 30, "fromMonth": 6, "toMonth": 9,
+						"tou_periods": {
+							"ON_PEAK": [{"fromDayOfWeek": 0, "toDayOfWeek": 6, "fromHour": 16, "toHour": 21}]
+						}
+					}
+				}
+			},
+			"tariff_content_v2": {
+				"code": "PGE-E-ELEC-2026-CA-NEM3-flag",
+				"name": "Residential TOU",
+				"utility": "Pacific Gas & Electric Co",
+				"currency": "USD",
+				"version": 1,
+				"demand_charges": {"ALL": {"rates": {"ALL": 0}}},
+				"energy_charges": {
+					"Summer": {"rates": {"ON_PEAK": 0.57908, "OFF_PEAK": 0.36052}}
+				},
+				"seasons": {
+					"Summer": {
+						"fromDay": 1, "toDay": 30, "fromMonth": 6, "toMonth": 9,
+						"tou_periods": {
+							"ON_PEAK": {"periods": [{"toDayOfWeek": 6, "fromHour": 16, "toHour": 21}]}
+						}
+					}
+				}
+			}
 		}
 	}`
 
@@ -47,6 +88,14 @@ func TestEnergySiteSpec(t *testing.T) {
 		So(energySite.ID, ShouldEqual, "STE20240101-00001")
 		So(energySite.SiteName, ShouldEqual, "My Energy Site")
 		So(energySite.BackupReservePercent, ShouldEqual, 20)
+		So(energySite.TariffID, ShouldEqual, "PGE-E-ELEC-NEM3-2026")
+		So(energySite.TariffContent, ShouldNotBeNil)
+		So(energySite.TariffContent.EnergyCharges["Summer"]["ON_PEAK"], ShouldEqual, 0.57908)
+		So(energySite.TariffContent.Seasons["Summer"].TOUPeriods["ON_PEAK"][0].FromHour, ShouldEqual, 16)
+		So(energySite.TariffContentV2, ShouldNotBeNil)
+		So(energySite.TariffContentV2.Version, ShouldEqual, 1)
+		So(energySite.TariffContentV2.EnergyCharges["Summer"].Rates["ON_PEAK"], ShouldEqual, 0.57908)
+		So(energySite.TariffContentV2.Seasons["Summer"].TOUPeriods["ON_PEAK"].Periods[0].FromHour, ShouldEqual, 16)
 	})
 
 	Convey("Should get energy site live status", t, func() {
@@ -65,6 +114,47 @@ func TestEnergySiteSpec(t *testing.T) {
 		So(liveStatus.IslandStatus, ShouldEqual, "SystemIslandStatusOnGrid")
 		So(liveStatus.StormModeActive, ShouldBeFalse)
 		So(liveStatus.Timestamp, ShouldEqual, "2024-01-01T12:00:00.000000Z")
+	})
+}
+
+var TariffCommandResponseJSON = `{"response":"{\"Message\":\"Updated\",\"Code\":201}\n"}`
+
+func TestSetTariff(t *testing.T) {
+	ts := serveHTTP(t)
+	defer ts.Close()
+
+	client := NewTestClient(ts)
+
+	var lastBody []byte
+	testMux.HandleFunc("/api/1/energy_sites/12345/tariff_rate", func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		lastBody = body
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(TariffCommandResponseJSON))
+	})
+
+	Convey("Should set named tariff", t, func() {
+		energySite, err := client.EnergySite(12345)
+		So(err, ShouldBeNil)
+		err = energySite.SetNamedTariff("PGE-E-ELEC-NEM3-2026")
+		So(err, ShouldBeNil)
+		var m map[string]interface{}
+		So(json.Unmarshal(lastBody, &m), ShouldBeNil)
+		So(m["tariff"], ShouldEqual, "PGE-E-ELEC-NEM3-2026")
+	})
+
+	Convey("Should set custom tariff", t, func() {
+		energySite, err := client.EnergySite(12345)
+		So(err, ShouldBeNil)
+		err = energySite.SetCustomTariff(0.30, 0.10)
+		So(err, ShouldBeNil)
+		var m map[string]interface{}
+		So(json.Unmarshal(lastBody, &m), ShouldBeNil)
+		So(m["tou_settings"], ShouldNotBeNil)
 	})
 }
 

@@ -10,12 +10,86 @@ import (
 	"time"
 )
 
+type TariffTOUPeriod struct {
+	FromDayOfWeek int `json:"fromDayOfWeek"`
+	ToDayOfWeek   int `json:"toDayOfWeek"`
+	FromHour      int `json:"fromHour"`
+	FromMinute    int `json:"fromMinute"`
+	ToHour        int `json:"toHour"`
+	ToMinute      int `json:"toMinute"`
+}
+
+type TariffSeason struct {
+	FromDay    int                          `json:"fromDay"`
+	ToDay      int                          `json:"toDay"`
+	FromMonth  int                          `json:"fromMonth"`
+	ToMonth    int                          `json:"toMonth"`
+	TOUPeriods map[string][]TariffTOUPeriod `json:"tou_periods"`
+}
+
+type TariffSellTariff struct {
+	DemandCharges map[string]map[string]float64 `json:"demand_charges"`
+	EnergyCharges map[string]map[string]float64 `json:"energy_charges"`
+	Seasons       map[string]TariffSeason       `json:"seasons"`
+}
+
+type TariffContent struct {
+	Code          string                        `json:"code"`
+	Name          string                        `json:"name"`
+	Utility       string                        `json:"utility"`
+	Currency      string                        `json:"currency"`
+	DemandCharges map[string]map[string]float64 `json:"demand_charges"`
+	EnergyCharges map[string]map[string]float64 `json:"energy_charges"`
+	Seasons       map[string]TariffSeason       `json:"seasons"`
+	SellTariff    *TariffSellTariff             `json:"sell_tariff"`
+}
+
+// TariffRates wraps a map of period/rate-name to rate value; v2 uses this
+// as the value type for each season/period key in demand_charges and energy_charges.
+type TariffRates struct {
+	Rates map[string]float64 `json:"rates"`
+}
+
+// TariffSeasonV2TOUPeriods wraps the list of TOU periods for a named period in v2.
+type TariffSeasonV2TOUPeriods struct {
+	Periods []TariffTOUPeriod `json:"periods"`
+}
+
+type TariffSeasonV2 struct {
+	FromDay    int                                  `json:"fromDay"`
+	ToDay      int                                  `json:"toDay"`
+	FromMonth  int                                  `json:"fromMonth"`
+	ToMonth    int                                  `json:"toMonth"`
+	TOUPeriods map[string]TariffSeasonV2TOUPeriods  `json:"tou_periods"`
+}
+
+type TariffSellTariffV2 struct {
+	DemandCharges map[string]TariffRates    `json:"demand_charges"`
+	EnergyCharges map[string]TariffRates    `json:"energy_charges"`
+	Seasons       map[string]TariffSeasonV2 `json:"seasons"`
+}
+
+type TariffContentV2 struct {
+	Code          string                    `json:"code"`
+	Name          string                    `json:"name"`
+	Utility       string                    `json:"utility"`
+	Currency      string                    `json:"currency"`
+	Version       int                       `json:"version"`
+	DemandCharges map[string]TariffRates    `json:"demand_charges"`
+	EnergyCharges map[string]TariffRates    `json:"energy_charges"`
+	Seasons       map[string]TariffSeasonV2 `json:"seasons"`
+	SellTariff    *TariffSellTariffV2       `json:"sell_tariff"`
+}
+
 // this represents site_info endpoint
 type EnergySite struct {
-	ID                   string `json:"id"`
-	SiteName             string `json:"site_name"`
-	BackupReservePercent int64  `json:"backup_reserve_percent,omitempty"`
-	DefaultRealMode      string `json:"default_real_mode,omitempty"`
+	ID                   string           `json:"id"`
+	SiteName             string           `json:"site_name"`
+	BackupReservePercent int64            `json:"backup_reserve_percent,omitempty"`
+	DefaultRealMode      string           `json:"default_real_mode,omitempty"`
+	TariffID             string           `json:"tariff_id,omitempty"`
+	TariffContent        *TariffContent   `json:"tariff_content,omitempty"`
+	TariffContentV2      *TariffContentV2 `json:"tariff_content_v2,omitempty"`
 
 	productId int64
 	c         *Client
@@ -110,6 +184,12 @@ type SiteCommandResponse struct {
 	} `json:"response"`
 }
 
+// TariffCommandResponse is the response from the tariff_rate endpoint.
+// The response value is a string-encoded JSON.
+type TariffCommandResponse struct {
+	Response string `json:"response"`
+}
+
 // return fetches the energy site for the given product ID
 func (c *Client) EnergySite(productID int64) (*EnergySite, error) {
 	siteInfoResponse := &SiteInfoResponse{}
@@ -177,6 +257,10 @@ func (s *EnergySite) liveStatusPath() string {
 	return strings.Join([]string{s.basePath(), "live_status"}, "/")
 }
 
+func (s *EnergySite) tariffPath() string {
+	return strings.Join([]string{s.basePath(), "tariff_rate"}, "/")
+}
+
 func (s *EnergySite) SetBatteryReserve(percent uint64) error {
 	url := s.basePath() + "/backup"
 	payload := fmt.Sprintf(`{"backup_reserve_percent":%d}`, percent)
@@ -195,6 +279,81 @@ func (s *EnergySite) SetBatteryReserve(percent uint64) error {
 	}
 
 	return nil
+}
+
+func checkTariffResponse(body []byte) error {
+	var outer TariffCommandResponse
+	if err := json.Unmarshal(body, &outer); err != nil {
+		return err
+	}
+	var inner struct {
+		Code    int    `json:"Code"`
+		Message string `json:"Message"`
+	}
+	if err := json.Unmarshal([]byte(outer.Response), &inner); err != nil {
+		return err
+	}
+	if inner.Code != 200 && inner.Code != 201 {
+		return fmt.Errorf("tariff command failed: %s", inner.Message)
+	}
+	return nil
+}
+
+// SetNamedTariff sets the energy site tariff to a named utility rate plan.
+func (s *EnergySite) SetNamedTariff(tariffName string) error {
+	payload, err := json.Marshal(map[string]string{"tariff": tariffName})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.tariffPath(), payload)
+	if err != nil {
+		return err
+	}
+	return checkTariffResponse(body)
+}
+
+// SetCustomTariff sets a flat buy/sell rate on the energy site.
+func (s *EnergySite) SetCustomTariff(buyPrice, sellPrice float64) error {
+	payload, err := json.Marshal(map[string]interface{}{
+		"tariff": "",
+		"tou_settings": map[string]interface{}{
+			"name":     "Custom",
+			"utility":  "",
+			"currency": "USD",
+			"demand_charges": map[string]interface{}{
+				"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": 0}},
+			},
+			"energy_charges": map[string]interface{}{
+				"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": buyPrice}},
+			},
+			"seasons": map[string]interface{}{
+				"All Year": map[string]interface{}{
+					"fromDay": 1, "toDay": 31, "fromMonth": 1, "toMonth": 12,
+					"tou_periods": map[string]interface{}{
+						"ALL": map[string]interface{}{
+							"periods": []map[string]int{{"toDayOfWeek": 6}},
+						},
+					},
+				},
+			},
+			"sell_tariff": map[string]interface{}{
+				"demand_charges": map[string]interface{}{
+					"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": 0}},
+				},
+				"energy_charges": map[string]interface{}{
+					"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": sellPrice}},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.tariffPath(), payload)
+	if err != nil {
+		return err
+	}
+	return checkTariffResponse(body)
 }
 
 // Sends a command to the vehicle
