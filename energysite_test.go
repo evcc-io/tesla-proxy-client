@@ -117,7 +117,7 @@ func TestEnergySiteSpec(t *testing.T) {
 	})
 }
 
-var TariffCommandResponseJSON = `{"response":"{\"Message\":\"Updated\",\"Code\":201}\n"}`
+var TariffCommandResponseJSON = `{"response":{"Message":"Updated","Code":201}}`
 
 func TestSetTariff(t *testing.T) {
 	ts := serveHTTP(t)
@@ -126,7 +126,7 @@ func TestSetTariff(t *testing.T) {
 	client := NewTestClient(ts)
 
 	var lastBody []byte
-	testMux.HandleFunc("/api/1/energy_sites/12345/tariff_rate", func(w http.ResponseWriter, req *http.Request) {
+	testMux.HandleFunc("/api/1/energy_sites/12345/time_of_use_settings", func(w http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

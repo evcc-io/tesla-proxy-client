@@ -354,38 +354,100 @@ func (s *EnergySite) SetNamedTariff(tariffName string) error {
 	return checkCommandResponse(body)
 }
 
-// SetCustomTariff sets a flat buy/sell rate on the energy site.
+// SetCustomTariff sets a custom rate plan on the energy site. When combined
+// with TOU mode this can be used to force exporting to grid.
+//
+// Powerwall's internal TOU controller seems to only change state when rates
+// themselves change, so flate rates have no impact on behavior. For this
+// reason the custom rate is crafted to have a sell price of 0 until the
+// current hour, at which point it takes on the given input. This step up is
+// enough to trigger the internal TOU controller.
 func (s *EnergySite) SetCustomTariff(buyPrice, sellPrice float64) error {
-	payload, err := json.Marshal(map[string]interface{}{
-		"tariff": "",
-		"tou_settings": map[string]interface{}{
-			"name":     "Custom",
-			"utility":  "",
-			"currency": "USD",
-			"demand_charges": map[string]interface{}{
-				"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": 0}},
-			},
-			"energy_charges": map[string]interface{}{
-				"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": buyPrice}},
-			},
-			"seasons": map[string]interface{}{
-				"All Year": map[string]interface{}{
-					"fromDay": 1, "toDay": 31, "fromMonth": 1, "toMonth": 12,
-					"tou_periods": map[string]interface{}{
-						"ALL": map[string]interface{}{
-							"periods": []map[string]int{{"toDayOfWeek": 6}},
-						},
-					},
+	monthNames := []string{
+		"January", "February", "March", "April", "May", "June",
+		"July", "August", "September", "October", "November", "December",
+	}
+
+	// Build sell tariff: 12 monthly seasons with 48 per-hour TOU period entries each.
+	sellSeasons := make(map[string]TariffSeasonV2, 12)
+	sellEnergyCharges := make(map[string]TariffRates, 12)
+	sellDemandCharges := map[string]TariffRates{
+		"ALL": {Rates: map[string]float64{"ALL": 0}},
+	}
+
+	now := time.Now()
+	currentMonth := int(now.Month())
+	currentHour := now.Hour()
+
+	for i, name := range monthNames {
+		monthNum := i + 1
+		touPeriods := make(map[string]TariffSeasonV2TOUPeriods, 48)
+		energyRates := make(map[string]float64, 48)
+
+		for h := 0; h < 24; h++ {
+			nextHour := (h + 1) % 24
+			weekdayKey := fmt.Sprintf("hour_%d_weekday", h)
+			weekendKey := fmt.Sprintf("hour_%d_weekend", h)
+
+			touPeriods[weekdayKey] = TariffSeasonV2TOUPeriods{
+				Periods: []TariffTOUPeriod{
+					{ToDayOfWeek: 4, FromHour: h, ToHour: nextHour},
+				},
+			}
+			touPeriods[weekendKey] = TariffSeasonV2TOUPeriods{
+				Periods: []TariffTOUPeriod{
+					{FromDayOfWeek: 5, ToDayOfWeek: 6, FromHour: h, ToHour: nextHour},
+				},
+			}
+
+			// Use 0 for hours already elapsed this year; sellPrice from current hour forward.
+			hourSellPrice := sellPrice
+			if monthNum < currentMonth || (monthNum == currentMonth && h < currentHour) {
+				hourSellPrice = 0
+			}
+			energyRates[weekdayKey] = hourSellPrice
+			energyRates[weekendKey] = hourSellPrice
+		}
+
+		sellSeasons[name] = TariffSeasonV2{
+			FromDay: 1, ToDay: 31, FromMonth: monthNum, ToMonth: monthNum,
+			TOUPeriods: touPeriods,
+		}
+		sellEnergyCharges[name] = TariffRates{Rates: energyRates}
+		sellDemandCharges[name] = TariffRates{}
+	}
+
+	tariffContent := TariffContentV2{
+		Version: 2,
+		Utility: "EVCC",
+		Name:    "Custom",
+		Seasons: map[string]TariffSeasonV2{
+			"Summer": {
+				FromDay: 1, ToDay: 31, FromMonth: 1, ToMonth: 12,
+				TOUPeriods: map[string]TariffSeasonV2TOUPeriods{
+					"OFF_PEAK": {Periods: []TariffTOUPeriod{{ToDayOfWeek: 6}}},
 				},
 			},
-			"sell_tariff": map[string]interface{}{
-				"demand_charges": map[string]interface{}{
-					"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": 0}},
-				},
-				"energy_charges": map[string]interface{}{
-					"ALL": map[string]interface{}{"rates": map[string]float64{"ALL": sellPrice}},
-				},
-			},
+			"Winter": {},
+		},
+		EnergyCharges: map[string]TariffRates{
+			"Summer": {Rates: map[string]float64{"OFF_PEAK": buyPrice}},
+		},
+		DemandCharges: map[string]TariffRates{
+			"ALL":    {Rates: map[string]float64{"ALL": 0}},
+			"Summer": {},
+			"Winter": {},
+		},
+		SellTariff: &TariffSellTariffV2{
+			Seasons:       sellSeasons,
+			EnergyCharges: sellEnergyCharges,
+			DemandCharges: sellDemandCharges,
+		},
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"tou_settings": map[string]any{
+			"tariff_content_v2": tariffContent,
 		},
 	})
 	if err != nil {
