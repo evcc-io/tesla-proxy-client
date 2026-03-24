@@ -17,6 +17,7 @@ var reservePercentage = flag.Int64("backupPercentage", -1, "backup percentage to
 var operationMode = flag.String("operationMode", "", "operating mode: self_consumption, autonomous, backup")
 var gridExport = flag.String("gridExport", "", "grid export rule: battery_ok, pv_only, never")
 var gridCharging = flag.String("gridCharging", "", "grid charging enabled: true, false")
+var stormMode = flag.String("stormMode", "", "storm mode enabled: true, false")
 
 // example that demos fetching of site information and optionally setting the battery reserve percentage for the site
 func main() {
@@ -27,13 +28,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(context.Background(), *tokenPath, *reservePercentage, *operationMode, *gridExport, *gridCharging); err != nil {
+	if err := run(context.Background(), *tokenPath, *reservePercentage, *operationMode, *gridExport, *gridCharging, *stormMode); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, tokenPath string, reservePercentage int64, operationMode, gridExport, gridCharging string) error {
+func run(ctx context.Context, tokenPath string, reservePercentage int64, operationMode, gridExport, gridCharging, stormMode string) error {
 	b, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return err
@@ -98,6 +99,13 @@ func run(ctx context.Context, tokenPath string, reservePercentage int64, operati
 				enabled := gridCharging == "true"
 				if err := es.SetGridCharging(enabled); err != nil {
 					fmt.Printf("error setting grid charging: %+v\n", err)
+					os.Exit(1)
+				}
+			}
+			if stormMode != "" {
+				enabled := stormMode == "true"
+				if err := es.SetStormMode(enabled); err != nil {
+					fmt.Printf("error setting storm mode: %+v\n", err)
 					os.Exit(1)
 				}
 			}

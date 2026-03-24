@@ -255,6 +255,10 @@ func (s *EnergySite) gridImportExportPath() string {
 	return strings.Join([]string{s.basePath(), "grid_import_export"}, "/")
 }
 
+func (s *EnergySite) stormModePath() string {
+	return strings.Join([]string{s.basePath(), "storm_mode"}, "/")
+}
+
 func (s *EnergySite) SetBatteryReserve(percent uint64) error {
 	url := s.basePath() + "/backup"
 	payload := fmt.Sprintf(`{"backup_reserve_percent":%d}`, percent)
@@ -306,6 +310,22 @@ func (s *EnergySite) SetGridExport(mode string) error {
 		return err
 	}
 	body, err := s.c.post(s.gridImportExportPath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
+
+// SetStormMode enables or disables storm watch mode.
+func (s *EnergySite) SetStormMode(enabled bool) error {
+	payload, err := json.Marshal(map[string]bool{"enabled": enabled})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.stormModePath(), payload)
 	if err != nil {
 		return err
 	}

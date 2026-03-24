@@ -158,6 +158,47 @@ func TestSetTariff(t *testing.T) {
 	})
 }
 
+var StormModeCommandResponseJSON = `{"response":{"code":201,"message":"Updated"}}`
+
+func TestSetStormMode(t *testing.T) {
+	ts := serveHTTP(t)
+	defer ts.Close()
+
+	client := NewTestClient(ts)
+
+	var lastBody []byte
+	testMux.HandleFunc("/api/1/energy_sites/12345/storm_mode", func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		lastBody = body
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(StormModeCommandResponseJSON))
+	})
+
+	Convey("Should enable storm mode", t, func() {
+		energySite, err := client.EnergySite(12345)
+		So(err, ShouldBeNil)
+		err = energySite.SetStormMode(true)
+		So(err, ShouldBeNil)
+		var m map[string]interface{}
+		So(json.Unmarshal(lastBody, &m), ShouldBeNil)
+		So(m["enabled"], ShouldEqual, true)
+	})
+
+	Convey("Should disable storm mode", t, func() {
+		energySite, err := client.EnergySite(12345)
+		So(err, ShouldBeNil)
+		err = energySite.SetStormMode(false)
+		So(err, ShouldBeNil)
+		var m map[string]interface{}
+		So(json.Unmarshal(lastBody, &m), ShouldBeNil)
+		So(m["enabled"], ShouldEqual, false)
+	})
+}
+
 func TestEnergySitePaths(t *testing.T) {
 	ts := serveHTTP(t)
 	defer ts.Close()
