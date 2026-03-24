@@ -150,7 +150,7 @@ func (s *EnergySite) SetBatteryReserve(percent uint64) error {
 		return err
 	}
 
-	if response.Response.Code != 201 {
+	if response.Response.Code != 200 && response.Response.Code != 201 {
 		return fmt.Errorf("batteryReserve failed: %s", response.Response.Message)
 	}
 
