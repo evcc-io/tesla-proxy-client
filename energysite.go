@@ -56,11 +56,11 @@ type TariffSeasonV2TOUPeriods struct {
 }
 
 type TariffSeasonV2 struct {
-	FromDay    int                                  `json:"fromDay"`
-	ToDay      int                                  `json:"toDay"`
-	FromMonth  int                                  `json:"fromMonth"`
-	ToMonth    int                                  `json:"toMonth"`
-	TOUPeriods map[string]TariffSeasonV2TOUPeriods  `json:"tou_periods"`
+	FromDay    int                                 `json:"fromDay"`
+	ToDay      int                                 `json:"toDay"`
+	FromMonth  int                                 `json:"fromMonth"`
+	ToMonth    int                                 `json:"toMonth"`
+	TOUPeriods map[string]TariffSeasonV2TOUPeriods `json:"tou_periods"`
 }
 
 type TariffSellTariffV2 struct {
@@ -176,20 +176,6 @@ type SiteLiveStatusResponse struct {
 	Response *EnergySiteLiveStatus `json:"response"`
 }
 
-// SiteCommandResponse is the response from the Tesla API after POSTing a command.
-type SiteCommandResponse struct {
-	Response struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"response"`
-}
-
-// TariffCommandResponse is the response from the tariff_rate endpoint.
-// The response value is a string-encoded JSON.
-type TariffCommandResponse struct {
-	Response string `json:"response"`
-}
-
 // return fetches the energy site for the given product ID
 func (c *Client) EnergySite(productID int64) (*EnergySite, error) {
 	siteInfoResponse := &SiteInfoResponse{}
@@ -258,7 +244,15 @@ func (s *EnergySite) liveStatusPath() string {
 }
 
 func (s *EnergySite) tariffPath() string {
-	return strings.Join([]string{s.basePath(), "tariff_rate"}, "/")
+	return strings.Join([]string{s.basePath(), "time_of_use_settings"}, "/")
+}
+
+func (s *EnergySite) operationPath() string {
+	return strings.Join([]string{s.basePath(), "operation"}, "/")
+}
+
+func (s *EnergySite) gridImportExportPath() string {
+	return strings.Join([]string{s.basePath(), "grid_import_export"}, "/")
 }
 
 func (s *EnergySite) SetBatteryReserve(percent uint64) error {
@@ -268,23 +262,68 @@ func (s *EnergySite) SetBatteryReserve(percent uint64) error {
 	if err != nil {
 		return err
 	}
-
-	response := SiteCommandResponse{}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return err
-	}
-
-	if response.Response.Code != 200 && response.Response.Code != 201 {
-		return fmt.Errorf("batteryReserve failed: %s", response.Response.Message)
-	}
-
-	return nil
+	return checkCommandResponse(body)
 }
 
-func checkTariffResponse(body []byte) error {
-	var outer TariffCommandResponse
+// SetOperatingMode sets the site operating mode.
+// Valid modes: "self_consumption", "autonomous", "backup"
+func (s *EnergySite) SetOperatingMode(mode string) error {
+	payload, err := json.Marshal(map[string]string{"default_real_mode": mode})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.operationPath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
+
+// SetGridCharging enables or disables charging from the grid.
+func (s *EnergySite) SetGridCharging(enabled bool) error {
+	payload, err := json.Marshal(map[string]bool{"disallow_charge_from_grid_with_solar_installed": !enabled})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.gridImportExportPath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
+
+// SetGridExport sets the grid export rule.
+// Valid modes: "battery_ok", "pv_only", "never"
+func (s *EnergySite) SetGridExport(mode string) error {
+	payload, err := json.Marshal(map[string]string{"customer_preferred_export_rule": mode})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.gridImportExportPath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
+
+func checkCommandResponse(body []byte) error {
+	var outer struct {
+		Response json.RawMessage `json:"response"`
+	}
 	if err := json.Unmarshal(body, &outer); err != nil {
 		return err
+	}
+	if len(outer.Response) == 0 {
+		return nil
 	}
 	var inner struct {
 		Code    int    `json:"Code"`
@@ -294,14 +333,17 @@ func checkTariffResponse(body []byte) error {
 		return err
 	}
 	if inner.Code != 200 && inner.Code != 201 {
-		return fmt.Errorf("tariff command failed: %s", inner.Message)
+		return fmt.Errorf("command failed: %s", inner.Message)
 	}
 	return nil
 }
 
 // SetNamedTariff sets the energy site tariff to a named utility rate plan.
 func (s *EnergySite) SetNamedTariff(tariffName string) error {
-	payload, err := json.Marshal(map[string]string{"tariff": tariffName})
+	payload, err := json.Marshal(map[string]any{
+		"tariff":       tariffName,
+		"tou_settings": map[string]any{},
+	})
 	if err != nil {
 		return err
 	}
@@ -309,7 +351,7 @@ func (s *EnergySite) SetNamedTariff(tariffName string) error {
 	if err != nil {
 		return err
 	}
-	return checkTariffResponse(body)
+	return checkCommandResponse(body)
 }
 
 // SetCustomTariff sets a flat buy/sell rate on the energy site.
@@ -353,7 +395,7 @@ func (s *EnergySite) SetCustomTariff(buyPrice, sellPrice float64) error {
 	if err != nil {
 		return err
 	}
-	return checkTariffResponse(body)
+	return checkCommandResponse(body)
 }
 
 // Sends a command to the vehicle
