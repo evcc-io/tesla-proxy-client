@@ -2,15 +2,37 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 
-	"github.com/bogosj/tesla"
+	"golang.org/x/oauth2"
+
+	tesla "github.com/evcc-io/tesla-proxy-client"
 )
 
+var tokenPath = flag.String("token", "", "path to token file")
+
 func main() {
+	flag.Parse()
+
+	if *tokenPath == "" {
+		fmt.Println("--token must be specified")
+		os.Exit(1)
+	}
+
 	ctx := context.Background()
-	client, err := tesla.NewClient(ctx, tesla.WithTokenFile("/file/path/to/token.json"))
+	b, err := os.ReadFile(*tokenPath)
+	if err != nil {
+		panic(err)
+	}
+	var tok *oauth2.Token
+	if err := json.Unmarshal(b, &tok); err != nil {
+		panic(err)
+	}
+
+	client, err := tesla.NewClient(ctx, tesla.WithTokenSource(oauth2.StaticTokenSource(tok)))
 	if err != nil {
 		panic(err)
 	}
