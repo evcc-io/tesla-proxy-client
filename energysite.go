@@ -10,12 +10,86 @@ import (
 	"time"
 )
 
+type TariffTOUPeriod struct {
+	FromDayOfWeek int `json:"fromDayOfWeek"`
+	ToDayOfWeek   int `json:"toDayOfWeek"`
+	FromHour      int `json:"fromHour"`
+	FromMinute    int `json:"fromMinute"`
+	ToHour        int `json:"toHour"`
+	ToMinute      int `json:"toMinute"`
+}
+
+type TariffSeason struct {
+	FromDay    int                          `json:"fromDay"`
+	ToDay      int                          `json:"toDay"`
+	FromMonth  int                          `json:"fromMonth"`
+	ToMonth    int                          `json:"toMonth"`
+	TOUPeriods map[string][]TariffTOUPeriod `json:"tou_periods"`
+}
+
+type TariffSellTariff struct {
+	DemandCharges map[string]map[string]float64 `json:"demand_charges"`
+	EnergyCharges map[string]map[string]float64 `json:"energy_charges"`
+	Seasons       map[string]TariffSeason       `json:"seasons"`
+}
+
+type TariffContent struct {
+	Code          string                        `json:"code"`
+	Name          string                        `json:"name"`
+	Utility       string                        `json:"utility"`
+	Currency      string                        `json:"currency"`
+	DemandCharges map[string]map[string]float64 `json:"demand_charges"`
+	EnergyCharges map[string]map[string]float64 `json:"energy_charges"`
+	Seasons       map[string]TariffSeason       `json:"seasons"`
+	SellTariff    *TariffSellTariff             `json:"sell_tariff"`
+}
+
+// TariffRates wraps a map of period/rate-name to rate value; v2 uses this
+// as the value type for each season/period key in demand_charges and energy_charges.
+type TariffRates struct {
+	Rates map[string]float64 `json:"rates"`
+}
+
+// TariffSeasonV2TOUPeriods wraps the list of TOU periods for a named period in v2.
+type TariffSeasonV2TOUPeriods struct {
+	Periods []TariffTOUPeriod `json:"periods"`
+}
+
+type TariffSeasonV2 struct {
+	FromDay    int                                 `json:"fromDay"`
+	ToDay      int                                 `json:"toDay"`
+	FromMonth  int                                 `json:"fromMonth"`
+	ToMonth    int                                 `json:"toMonth"`
+	TOUPeriods map[string]TariffSeasonV2TOUPeriods `json:"tou_periods"`
+}
+
+type TariffSellTariffV2 struct {
+	DemandCharges map[string]TariffRates    `json:"demand_charges"`
+	EnergyCharges map[string]TariffRates    `json:"energy_charges"`
+	Seasons       map[string]TariffSeasonV2 `json:"seasons"`
+}
+
+type TariffContentV2 struct {
+	Code          string                    `json:"code"`
+	Name          string                    `json:"name"`
+	Utility       string                    `json:"utility"`
+	Currency      string                    `json:"currency"`
+	Version       int                       `json:"version"`
+	DemandCharges map[string]TariffRates    `json:"demand_charges"`
+	EnergyCharges map[string]TariffRates    `json:"energy_charges"`
+	Seasons       map[string]TariffSeasonV2 `json:"seasons"`
+	SellTariff    *TariffSellTariffV2       `json:"sell_tariff"`
+}
+
 // this represents site_info endpoint
 type EnergySite struct {
-	ID                   string `json:"id"`
-	SiteName             string `json:"site_name"`
-	BackupReservePercent int64  `json:"backup_reserve_percent,omitempty"`
-	DefaultRealMode      string `json:"default_real_mode,omitempty"`
+	ID                   string           `json:"id"`
+	SiteName             string           `json:"site_name"`
+	BackupReservePercent int64            `json:"backup_reserve_percent,omitempty"`
+	DefaultRealMode      string           `json:"default_real_mode,omitempty"`
+	TariffID             string           `json:"tariff_id,omitempty"`
+	TariffContent        *TariffContent   `json:"tariff_content,omitempty"`
+	TariffContentV2      *TariffContentV2 `json:"tariff_content_v2,omitempty"`
 
 	productId int64
 	c         *Client
@@ -25,14 +99,17 @@ type EnergySiteStatus struct {
 	ResourceType      string  `json:"resource_type"`
 	SiteName          string  `json:"site_name"`
 	GatewayId         string  `json:"gateway_id"`
-	EnergyLeft        float64 `json:"energy_left"`
-	TotalPackEnergy   uint64  `json:"total_pack_energy"`
 	PercentageCharged float64 `json:"percentage_charged"`
 	BatteryType       string  `json:"battery_type"`
 	BackupCapable     bool    `json:"backup_capable"`
 	BatteryPower      int64   `json:"battery_power"`
 
 	c *Client
+
+	// These are no longer returned.
+	// https://github.com/teslamotors/vehicle-command/issues/215
+	// EnergyLeft        float64 `json:"energy_left"`
+	// TotalPackEnergy   uint64  `json:"total_pack_energy"`
 }
 
 type EnergySiteHistory struct {
@@ -75,12 +152,28 @@ type SiteHistoryResponse struct {
 	Response *EnergySiteHistory `json:"response"`
 }
 
-// SiteCommandResponse is the response from the Tesla API after POSTing a command.
-type SiteCommandResponse struct {
-	Response struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"response"`
+type EnergySiteLiveStatus struct {
+	SolarPower         float64 `json:"solar_power"`
+	PercentageCharged  float64 `json:"percentage_charged"`
+	BatteryPower       float64 `json:"battery_power"`
+	LoadPower          float64 `json:"load_power"`
+	GridPower          float64 `json:"grid_power"`
+	GridServicesActive bool    `json:"grid_services_active"`
+	GridStatus         string  `json:"grid_status"`
+	IslandStatus       string  `json:"island_status"`
+	StormModeActive    bool    `json:"storm_mode_active"`
+	Timestamp          string  `json:"timestamp"`
+
+	c *Client
+
+	// These are no longer returned.
+	// https://github.com/teslamotors/vehicle-command/issues/215
+	// EnergyLeft         float64 `json:"energy_left"`
+	// TotalPackEnergy    float64 `json:"total_pack_energy"`
+}
+
+type SiteLiveStatusResponse struct {
+	Response *EnergySiteLiveStatus `json:"response"`
 }
 
 // return fetches the energy site for the given product ID
@@ -121,6 +214,15 @@ func (s *EnergySite) EnergySiteHistory(period HistoryPeriod) (*EnergySiteHistory
 	return historyResponse.Response, nil
 }
 
+func (s *EnergySite) EnergySiteLiveStatus() (*EnergySiteLiveStatus, error) {
+	liveStatusResponse := &SiteLiveStatusResponse{}
+	if err := s.c.getJSON(s.liveStatusPath(), liveStatusResponse); err != nil {
+		return nil, err
+	}
+	liveStatusResponse.Response.c = s.c
+	return liveStatusResponse.Response, nil
+}
+
 func (s *EnergySite) basePath() string {
 	return strings.Join([]string{s.c.baseURL, "energy_sites", strconv.FormatInt(s.productId, 10)}, "/")
 }
@@ -137,6 +239,26 @@ func (s *EnergySite) historyPath(period HistoryPeriod) string {
 	return strings.Join([]string{s.basePath(), "history"}, "/") + fmt.Sprintf("?%s", v.Encode())
 }
 
+func (s *EnergySite) liveStatusPath() string {
+	return strings.Join([]string{s.basePath(), "live_status"}, "/")
+}
+
+func (s *EnergySite) tariffPath() string {
+	return strings.Join([]string{s.basePath(), "time_of_use_settings"}, "/")
+}
+
+func (s *EnergySite) operationPath() string {
+	return strings.Join([]string{s.basePath(), "operation"}, "/")
+}
+
+func (s *EnergySite) gridImportExportPath() string {
+	return strings.Join([]string{s.basePath(), "grid_import_export"}, "/")
+}
+
+func (s *EnergySite) stormModePath() string {
+	return strings.Join([]string{s.basePath(), "storm_mode"}, "/")
+}
+
 func (s *EnergySite) SetBatteryReserve(percent uint64) error {
 	url := s.basePath() + "/backup"
 	payload := fmt.Sprintf(`{"backup_reserve_percent":%d}`, percent)
@@ -144,17 +266,218 @@ func (s *EnergySite) SetBatteryReserve(percent uint64) error {
 	if err != nil {
 		return err
 	}
+	return checkCommandResponse(body)
+}
 
-	response := SiteCommandResponse{}
-	if err := json.Unmarshal(body, &response); err != nil {
+// SetOperatingMode sets the site operating mode.
+// Valid modes: "self_consumption", "autonomous", "backup"
+func (s *EnergySite) SetOperatingMode(mode string) error {
+	payload, err := json.Marshal(map[string]string{"default_real_mode": mode})
+	if err != nil {
 		return err
 	}
+	body, err := s.c.post(s.operationPath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
 
-	if response.Response.Code != 200 && response.Response.Code != 201 {
-		return fmt.Errorf("batteryReserve failed: %s", response.Response.Message)
+// SetGridCharging enables or disables charging from the grid.
+func (s *EnergySite) SetGridCharging(enabled bool) error {
+	payload, err := json.Marshal(map[string]bool{"disallow_charge_from_grid_with_solar_installed": !enabled})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.gridImportExportPath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
+
+// SetGridExport sets the grid export rule.
+// Valid modes: "battery_ok", "pv_only", "never"
+func (s *EnergySite) SetGridExport(mode string) error {
+	payload, err := json.Marshal(map[string]string{"customer_preferred_export_rule": mode})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.gridImportExportPath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
+
+// SetStormMode enables or disables storm watch mode.
+func (s *EnergySite) SetStormMode(enabled bool) error {
+	payload, err := json.Marshal(map[string]bool{"enabled": enabled})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.stormModePath(), payload)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return checkCommandResponse(body)
+}
+
+func checkCommandResponse(body []byte) error {
+	var outer struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(body, &outer); err != nil {
+		return err
+	}
+	if len(outer.Response) == 0 {
+		return nil
+	}
+	var inner struct {
+		Code    int    `json:"Code"`
+		Message string `json:"Message"`
+	}
+	if err := json.Unmarshal([]byte(outer.Response), &inner); err != nil {
+		return err
+	}
+	if inner.Code != 200 && inner.Code != 201 {
+		return fmt.Errorf("command failed: %s", inner.Message)
+	}
+	return nil
+}
+
+// SetNamedTariff sets the energy site tariff to a named utility rate plan.
+func (s *EnergySite) SetNamedTariff(tariffName string) error {
+	payload, err := json.Marshal(map[string]any{
+		"tariff":       tariffName,
+		"tou_settings": map[string]any{},
+	})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.tariffPath(), payload)
+	if err != nil {
+		return err
+	}
+	return checkCommandResponse(body)
+}
+
+// SetCustomTariff sets a custom rate plan on the energy site. When combined
+// with TOU mode this can be used to force exporting to grid.
+//
+// Powerwall's internal TOU controller seems to only change state when rates
+// themselves change, so flate rates have no impact on behavior. For this
+// reason the custom rate is crafted to have a sell price of 0 until the
+// current hour, at which point it takes on the given input. This step up is
+// enough to trigger the internal TOU controller.
+func (s *EnergySite) SetCustomTariff(buyPrice, sellPrice float64) error {
+	monthNames := []string{
+		"January", "February", "March", "April", "May", "June",
+		"July", "August", "September", "October", "November", "December",
 	}
 
-	return nil
+	// Build sell tariff: 12 monthly seasons with 48 per-hour TOU period entries each.
+	sellSeasons := make(map[string]TariffSeasonV2, 12)
+	sellEnergyCharges := make(map[string]TariffRates, 12)
+	sellDemandCharges := map[string]TariffRates{
+		"ALL": {Rates: map[string]float64{"ALL": 0}},
+	}
+
+	now := time.Now()
+	currentMonth := int(now.Month())
+	currentHour := now.Hour()
+
+	for i, name := range monthNames {
+		monthNum := i + 1
+		touPeriods := make(map[string]TariffSeasonV2TOUPeriods, 48)
+		energyRates := make(map[string]float64, 48)
+
+		for h := 0; h < 24; h++ {
+			nextHour := (h + 1) % 24
+			weekdayKey := fmt.Sprintf("hour_%d_weekday", h)
+			weekendKey := fmt.Sprintf("hour_%d_weekend", h)
+
+			touPeriods[weekdayKey] = TariffSeasonV2TOUPeriods{
+				Periods: []TariffTOUPeriod{
+					{ToDayOfWeek: 4, FromHour: h, ToHour: nextHour},
+				},
+			}
+			touPeriods[weekendKey] = TariffSeasonV2TOUPeriods{
+				Periods: []TariffTOUPeriod{
+					{FromDayOfWeek: 5, ToDayOfWeek: 6, FromHour: h, ToHour: nextHour},
+				},
+			}
+
+			// Use 0 for hours already elapsed this year; sellPrice from current hour forward.
+			hourSellPrice := sellPrice
+			if monthNum < currentMonth || (monthNum == currentMonth && h < currentHour) {
+				hourSellPrice = 0
+			}
+			energyRates[weekdayKey] = hourSellPrice
+			energyRates[weekendKey] = hourSellPrice
+		}
+
+		sellSeasons[name] = TariffSeasonV2{
+			FromDay: 1, ToDay: 31, FromMonth: monthNum, ToMonth: monthNum,
+			TOUPeriods: touPeriods,
+		}
+		sellEnergyCharges[name] = TariffRates{Rates: energyRates}
+		sellDemandCharges[name] = TariffRates{}
+	}
+
+	tariffContent := TariffContentV2{
+		Version: 2,
+		Utility: "EVCC",
+		Name:    "Custom",
+		Seasons: map[string]TariffSeasonV2{
+			"Summer": {
+				FromDay: 1, ToDay: 31, FromMonth: 1, ToMonth: 12,
+				TOUPeriods: map[string]TariffSeasonV2TOUPeriods{
+					"OFF_PEAK": {Periods: []TariffTOUPeriod{{ToDayOfWeek: 6}}},
+				},
+			},
+			"Winter": {},
+		},
+		EnergyCharges: map[string]TariffRates{
+			"Summer": {Rates: map[string]float64{"OFF_PEAK": buyPrice}},
+		},
+		DemandCharges: map[string]TariffRates{
+			"ALL":    {Rates: map[string]float64{"ALL": 0}},
+			"Summer": {},
+			"Winter": {},
+		},
+		SellTariff: &TariffSellTariffV2{
+			Seasons:       sellSeasons,
+			EnergyCharges: sellEnergyCharges,
+			DemandCharges: sellDemandCharges,
+		},
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"tou_settings": map[string]any{
+			"tariff_content_v2": tariffContent,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	body, err := s.c.post(s.tariffPath(), payload)
+	if err != nil {
+		return err
+	}
+	return checkCommandResponse(body)
 }
 
 // Sends a command to the vehicle

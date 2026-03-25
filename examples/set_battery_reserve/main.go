@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 
-	"github.com/bogosj/tesla"
+	"golang.org/x/oauth2"
+
+	tesla "github.com/evcc-io/tesla-proxy-client"
 )
 
 var tokenPath = flag.String("token", "", "path to token file")
@@ -27,7 +30,16 @@ func main() {
 }
 
 func run(ctx context.Context, tokenPath string) error {
-	c, err := tesla.NewClient(ctx, tesla.WithTokenFile(tokenPath))
+	b, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return err
+	}
+	var tok *oauth2.Token
+	if err := json.Unmarshal(b, &tok); err != nil {
+		return err
+	}
+
+	c, err := tesla.NewClient(ctx, tesla.WithTokenSource(oauth2.StaticTokenSource(tok)))
 	if err != nil {
 		return err
 	}
