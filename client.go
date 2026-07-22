@@ -71,7 +71,10 @@ func (c *Client) SetApiUrl(url string) {
 
 // Calls an HTTP GET
 func (c *Client) get(url string) ([]byte, error) {
-	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
 	return c.processRequest(req)
 }
 
@@ -90,7 +93,10 @@ func (c *Client) getJSON(url string, out interface{}) error {
 
 // Calls an HTTP POST with a JSON body
 func (c *Client) post(url string, body []byte) ([]byte, error) {
-	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
 	return c.processRequest(req)
 }
 
