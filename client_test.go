@@ -50,6 +50,16 @@ func TestClientSpec(t *testing.T) {
 		So(req.Header.Get("Accept"), ShouldEqual, "application/json")
 		So(req.Header.Get("Content-Type"), ShouldEqual, "application/json")
 	})
+
+	Convey("Should return an error for a malformed url", t, func() {
+		const malformed = "://proxy/api/1/vehicles"
+
+		_, err := client.get(malformed)
+		So(err, ShouldNotBeNil)
+
+		_, err = client.post(malformed, nil)
+		So(err, ShouldNotBeNil)
+	})
 }
 
 var testMux = &http.ServeMux{}
