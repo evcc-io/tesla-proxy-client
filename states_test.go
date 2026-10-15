@@ -3,6 +3,7 @@ package tesla
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -92,7 +93,12 @@ func TestStatesSpecError(t *testing.T) {
 	mux := new(http.ServeMux)
 	mux.HandleFunc("/oauth/token", serveJSON("{\"access_token\": \"ghi789\"}"))
 	mux.HandleFunc("/api/1/vehicles", serveJSON(VehiclesJSON))
-	mux.HandleFunc("/api/1/vehicles/1234/vehicle_data", serveJSON(ErrorJSON))
+	mux.HandleFunc("/api/1/vehicles/1234/vehicle_data", func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Query().Get("endpoints"), "location_data") {
+			t.Error("location_data endpoint not requested")
+		}
+		serveJSON(ErrorJSON)(w, r)
+	})
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 

@@ -2,6 +2,7 @@ package tesla
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -306,10 +307,14 @@ func stateError(sr *VehicleData) error {
 	return fmt.Errorf("%s", sr.Error)
 }
 
+const vehicleDataEndpoints = "charge_state;climate_state;drive_state;location_data;vehicle_config;vehicle_state"
+
 // A utility function to fetch the appropriate state of the vehicle
 func (c *Client) fetchState(vin string) (*VehicleData, error) {
 	var res VehicleData
 	path := strings.Join([]string{c.baseURL, "vehicles", vin, "vehicle_data"}, "/")
+	// location_data is not included by default (firmware 2023.38+)
+	path += "?endpoints=" + url.QueryEscape(vehicleDataEndpoints)
 	if err := c.getJSON(path, &res); err != nil {
 		return nil, err
 	}
